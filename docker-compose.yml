@@ -7,8 +7,6 @@ services:
       POSTGRES_USER: ixope
       POSTGRES_PASSWORD: ixope123
       POSTGRES_DB: ixope_db
-    ports:
-      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +19,6 @@ services:
     image: redis:7-alpine
     container_name: ixope_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -40,17 +36,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://ixope:ixope123@db:5432/ixope_db
-      REDIS_URL: redis://redis:6379/0
-      API_HOST: 0.0.0.0
-      API_PORT: 8000
-      DEBUG: "false"
-      UPLOAD_DIR: /app/uploads
-      MAX_FILE_SIZE_MB: 100
-      CORS_ORIGINS: "http://localhost:3000,http://localhost,https://ixope-hub.com"
-    ports:
-      - "8000:8000"
+      REDIS_URL: redis://redis:6379/1
     volumes:
       - uploads:/app/uploads
 
