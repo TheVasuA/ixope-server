@@ -10,3 +10,5 @@ pillow==10.4.0
 aiofiles==24.1.0
 redis[hiredis]==5.1.1
 reportlab==4.2.5
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
