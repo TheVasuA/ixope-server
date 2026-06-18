@@ -1,0 +1,72 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ixope_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ixope
+      POSTGRES_PASSWORD: ixope123
+      POSTGRES_DB: ixope_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ixope -d ixope_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ixope_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    container_name: ixope_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ixope:ixope123@db:5432/ixope_db
+      REDIS_URL: redis://redis:6379/0
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      DEBUG: "false"
+      UPLOAD_DIR: /app/uploads
+      MAX_FILE_SIZE_MB: 100
+      CORS_ORIGINS: "http://localhost:3000,http://localhost,https://ixope-hub.com"
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+
+  nginx:
+    image: nginx:alpine
+    container_name: ixope_nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - uploads:/var/www/uploads:ro
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
