@@ -55,8 +55,8 @@ async def list_images(
     response = []
     for img in images:
         data = ImageResponse.model_validate(img)
-        data.url = f"/api/captures/images/{img.id}/file"
-        data.thumbnail_url = f"/api/captures/images/{img.id}/thumbnail"
+        data.url = f"/captures/images/{img.id}/file"
+        data.thumbnail_url = f"/captures/images/{img.id}/thumbnail"
         response.append(data)
 
     return response

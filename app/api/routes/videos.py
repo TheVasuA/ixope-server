@@ -53,7 +53,7 @@ async def list_videos(
     response = []
     for vid in videos:
         data = VideoResponse.model_validate(vid)
-        data.url = f"/api/videos/{vid.id}/file"
+        data.url = f"/captures/videos/{vid.id}/file"
         response.append(data)
 
     return response
