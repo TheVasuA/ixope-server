@@ -110,10 +110,19 @@ async def get_me(current_user: User = Depends(get_current_user)):
 # ─── Create sample user on first run ─────────────────────────────────────────
 @router.post("/seed", include_in_schema=False)
 async def seed_sample_user(db: AsyncSession = Depends(get_db)):
-    """Create sample login user (run once)."""
-    existing = await db.execute(select(User).where(User.email == "ixope@ixope-hub.com"))
-    if existing.scalar_one_or_none():
-        return {"message": "Sample user already exists"}
+    """Create sample login user (run once). Deletes existing and recreates."""
+    # Delete existing sample users and recreate with fresh hashes
+    existing = await db.execute(select(User).where(User.username == "ixope"))
+    user_obj = existing.scalar_one_or_none()
+    if user_obj:
+        await db.delete(user_obj)
+
+    existing2 = await db.execute(select(User).where(User.username == "admin"))
+    admin_obj = existing2.scalar_one_or_none()
+    if admin_obj:
+        await db.delete(admin_obj)
+
+    await db.commit()
 
     user = User(
         email="ixope@ixope-hub.com",
@@ -134,4 +143,4 @@ async def seed_sample_user(db: AsyncSession = Depends(get_db)):
     db.add(admin)
 
     await db.commit()
-    return {"message": "Sample users created: ixope@ixope-hub.com / ixope@123, admin@ixope-hub.com / ixope@321"}
+    return {"message": "Users recreated: ixope / ixope@123, admin / ixope@321"}
