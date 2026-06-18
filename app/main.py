@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.redis import get_redis, close_redis
 from app.api.routes import upload, images, videos, devices, patients, stats, pdf, auth
+from app.api.routes import websocket as ws_routes
 
 
 @asynccontextmanager
@@ -48,6 +49,7 @@ app.include_router(stats.router)
 app.include_router(devices.router)
 app.include_router(patients.router)
 app.include_router(pdf.router)
+app.include_router(ws_routes.router)
 
 
 @app.get("/health")
