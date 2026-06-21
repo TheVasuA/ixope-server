@@ -180,16 +180,15 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
 
         # Draw full-page image maintaining aspect ratio
         try:
-            img_reader = ImageReader(BIO(img_bytes))
-            iw, ih = img_reader.getSize()
+            from PIL import Image as PILImage
+            pil_img = PILImage.open(BIO(img_bytes))
+            iw, ih = pil_img.size
             aspect = iw / ih
 
             if aspect > img_area_width / img_area_height:
-                # Wider — fit by width
                 draw_w = img_area_width
                 draw_h = img_area_width / aspect
             else:
-                # Taller — fit by height
                 draw_h = img_area_height
                 draw_w = img_area_height * aspect
 
@@ -197,7 +196,16 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
             draw_x = margin + (img_area_width - draw_w) / 2
             draw_y = img_area_bottom + (img_area_height - draw_h) / 2
 
-            c.drawImage(img_reader, draw_x, draw_y, width=draw_w, height=draw_h)
+            # Convert to RGB if needed (RGBA/P modes cause issues)
+            if pil_img.mode in ('RGBA', 'P', 'LA'):
+                pil_img = pil_img.convert('RGB')
+
+            # Save to buffer as JPEG for reportlab
+            img_buf = BIO()
+            pil_img.save(img_buf, format='JPEG', quality=90)
+            img_buf.seek(0)
+
+            c.drawImage(ImageReader(img_buf), draw_x, draw_y, width=draw_w, height=draw_h)
         except Exception as e:
             c.setFont("Helvetica", 10)
             c.drawString(margin, height / 2, f"Cannot render image: {img.filename}")
