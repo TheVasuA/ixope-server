@@ -86,7 +86,15 @@ async def get_image_file(image_id: int, db: AsyncSession = Depends(get_db)):
     if not os.path.exists(image.file_path):
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(image.file_path, media_type=image.mime_type, filename=image.filename)
+    return FileResponse(
+        image.file_path,
+        media_type=image.mime_type,
+        filename=image.filename,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
 
 
 @router.get("/{image_id}/thumbnail")
@@ -98,12 +106,14 @@ async def get_image_thumbnail(image_id: int, db: AsyncSession = Depends(get_db))
         raise HTTPException(404, "Image not found")
 
     import os
+    cors_headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"}
+
     # Serve thumbnail if available, otherwise serve original
     if image.thumbnail_path and os.path.exists(image.thumbnail_path):
-        return FileResponse(image.thumbnail_path, media_type="image/jpeg")
+        return FileResponse(image.thumbnail_path, media_type="image/jpeg", headers=cors_headers)
 
     if os.path.exists(image.file_path):
-        return FileResponse(image.file_path, media_type=image.mime_type)
+        return FileResponse(image.file_path, media_type=image.mime_type, headers=cors_headers)
 
     raise HTTPException(404, "File not found")
 
