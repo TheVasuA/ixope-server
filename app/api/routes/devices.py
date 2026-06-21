@@ -22,8 +22,12 @@ async def device_heartbeat(data: DeviceHeartbeat, db: AsyncSession = Depends(get
     Called by the IXOPE device every ~30s to report it's online.
     Stores real-time status in Redis (60s TTL) + updates DB last_seen.
     """
-    # Redis: set device online with 60s TTL
-    await set_device_online(data.device_id, data.ip_address or "", ttl=60)
+    # Redis: set device online with 60s TTL (optional — skip if Redis unavailable)
+    try:
+        import asyncio
+        await asyncio.wait_for(set_device_online(data.device_id, data.ip_address or "", ttl=60), timeout=2)
+    except Exception:
+        pass
 
     # DB: update or create device record
     result = await db.execute(select(Device).where(Device.device_id == data.device_id))
@@ -53,9 +57,13 @@ async def list_devices(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Device).order_by(Device.last_seen.desc()))
     devices = result.scalars().all()
 
-    # Enrich with real-time Redis status
+    # Enrich with real-time Redis status (optional)
     for device in devices:
-        device.is_online = await is_device_online(device.device_id)
+        try:
+            import asyncio
+            device.is_online = await asyncio.wait_for(is_device_online(device.device_id), timeout=2)
+        except Exception:
+            pass
 
     return devices
 
@@ -69,9 +77,14 @@ async def get_device_status_endpoint(device_id: str, db: AsyncSession = Depends(
     if not device:
         raise HTTPException(404, "Device not found")
 
-    # Real-time status from Redis
-    device.is_online = await is_device_online(device_id)
-    redis_status = await get_device_status(device_id)
+    # Real-time status from Redis (optional)
+    redis_status = None
+    try:
+        import asyncio
+        device.is_online = await asyncio.wait_for(is_device_online(device_id), timeout=2)
+        redis_status = await asyncio.wait_for(get_device_status(device_id), timeout=2)
+    except Exception:
+        pass
 
     # Get counts
     img_result = await db.execute(

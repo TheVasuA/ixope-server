@@ -60,8 +60,8 @@ async def list_videos(
 
 
 @router.get("/{video_id}/file")
-async def get_video_file(video_id: int, db: AsyncSession = Depends(get_db)):
-    """Serve video file with range request support."""
+async def get_video_file(video_id: int, download: str = Query("", description="Set to trigger download"), db: AsyncSession = Depends(get_db)):
+    """Serve video file with optional download attachment header."""
     result = await db.execute(select(VideoCapture).where(VideoCapture.id == video_id))
     video = result.scalar_one_or_none()
     if not video:
@@ -71,7 +71,72 @@ async def get_video_file(video_id: int, db: AsyncSession = Depends(get_db)):
     if not os.path.exists(video.file_path):
         raise HTTPException(404, "File not found on disk")
 
-    return FileResponse(video.file_path, media_type=video.mime_type, filename=video.filename)
+    # If download param is present, force browser to download instead of play inline
+    if download:
+        return FileResponse(
+            video.file_path,
+            media_type="application/octet-stream",
+            filename=video.original_filename or video.filename,
+            headers={"Content-Disposition": f'attachment; filename="{video.original_filename or video.filename}"'},
+        )
+
+    return FileResponse(
+        video.file_path,
+        media_type=video.mime_type or "video/mp4",
+        filename=video.filename,
+        headers={"Accept-Ranges": "bytes"},
+    )
+
+
+@router.get("/{video_id}/stream")
+async def stream_video_h264(video_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Stream video transcoded to H.264 on-the-fly for browser playback.
+    Falls back to raw file if ffmpeg is not available.
+    """
+    import os
+    import shutil
+    import asyncio
+    from fastapi.responses import StreamingResponse
+
+    result = await db.execute(select(VideoCapture).where(VideoCapture.id == video_id))
+    video = result.scalar_one_or_none()
+    if not video:
+        raise HTTPException(404, "Video not found")
+
+    if not os.path.exists(video.file_path):
+        raise HTTPException(404, "File not found on disk")
+
+    # Check for pre-transcoded cached version
+    cache_dir = os.path.join(os.path.dirname(video.file_path), ".cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    cached_path = os.path.join(cache_dir, f"{video.id}_h264.mp4")
+
+    if os.path.exists(cached_path):
+        return FileResponse(cached_path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
+
+    # If ffmpeg not available, serve raw file
+    if not shutil.which("ffmpeg"):
+        return FileResponse(video.file_path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
+
+    # Transcode to cached file (one-time cost per video)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", video.file_path,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-movflags", "+faststart",
+            cached_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode == 0 and os.path.exists(cached_path):
+            return FileResponse(cached_path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
+    except Exception:
+        pass
+
+    # Fallback: serve original
+    return FileResponse(video.file_path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
 
 
 @router.delete("/{video_id}")

@@ -14,7 +14,6 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.capture import ImageCapture, VideoCapture
 from app.schemas.capture import UploadResponse
-from app.services.thumbnail import generate_image_thumbnail, generate_video_thumbnail
 
 router = APIRouter(prefix="/captures", tags=["Captures"])
 
@@ -57,8 +56,13 @@ async def upload_image(
     with open(save_path, "wb") as f:
         f.write(content)
 
-    # Generate thumbnail
-    thumb_path = generate_image_thumbnail(save_path, settings.UPLOAD_DIR) or ""
+    # Generate thumbnail (optional, don't fail upload if it fails)
+    thumb_path = ""
+    try:
+        from app.services.thumbnail import generate_image_thumbnail
+        thumb_path = generate_image_thumbnail(save_path, settings.UPLOAD_DIR) or ""
+    except Exception:
+        pass
 
     image = ImageCapture(
         device_id=device_id,
@@ -110,8 +114,25 @@ async def upload_video(
     with open(save_path, "wb") as f:
         f.write(content)
 
-    # Generate video poster thumbnail
-    thumb_path = generate_video_thumbnail(save_path, settings.UPLOAD_DIR) or ""
+    # Transcode to H.264 if needed for browser compatibility
+    final_path = save_path
+    try:
+        from app.services.transcode import ensure_browser_compatible
+        transcoded = await ensure_browser_compatible(save_path)
+        if transcoded and transcoded != save_path:
+            final_path = transcoded
+            filename = os.path.basename(transcoded)
+            file_size = os.path.getsize(transcoded)
+    except Exception:
+        pass  # Serve original if transcoding fails
+
+    # Generate video poster thumbnail (optional)
+    thumb_path = ""
+    try:
+        from app.services.thumbnail import generate_video_thumbnail
+        thumb_path = generate_video_thumbnail(final_path, settings.UPLOAD_DIR) or ""
+    except Exception:
+        pass
 
     video = VideoCapture(
         device_id=device_id,
@@ -119,10 +140,10 @@ async def upload_video(
         scope=scope,
         filename=filename,
         original_filename=file.filename,
-        file_path=save_path,
+        file_path=final_path,
         thumbnail_path=thumb_path,
         file_size=file_size,
-        mime_type=file.content_type or "video/mp4",
+        mime_type="video/mp4",
     )
     db.add(video)
     await db.commit()

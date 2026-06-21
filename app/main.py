@@ -16,9 +16,15 @@ from app.api.routes import websocket as ws_routes
 async def lifespan(app: FastAPI):
     """Startup: create tables + connect Redis. Shutdown: cleanup."""
     await init_db()
-    await get_redis()  # Warm up Redis connection
+    try:
+        await get_redis()  # Warm up Redis connection (optional)
+    except Exception:
+        pass
     yield
-    await close_redis()
+    try:
+        await close_redis()
+    except Exception:
+        pass
 
 
 app = FastAPI(
