@@ -97,85 +97,116 @@ async def generate_report(data: GenerateRequest, db: AsyncSession = Depends(get_
 
 
 async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
-    """Build PDF bytes — reads images from Redis cache (fast) with disk fallback."""
-    from PIL import Image as PILImage
-    from io import BytesIO as BIO
-
-    # Simple PDF construction using reportlab-like approach
-    # Using basic approach: create pages with images
+    """Build PDF — one full-page image per page, reads from Redis/disk."""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
         from reportlab.lib.units import mm
-
-        buffer = BIO()
-        c = canvas.Canvas(buffer, pagesize=A4)
-        width, height = A4
-
-        # Header
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(20 * mm, height - 20 * mm, "IXOPE Medical Report")
-
-        c.setFont("Helvetica", 10)
-        c.drawString(20 * mm, height - 30 * mm, f"Patient: {data.patient_name}")
-        c.drawString(20 * mm, height - 36 * mm, f"ID: {data.patient_id}")
-        if data.date_of_birth:
-            c.drawString(20 * mm, height - 42 * mm, f"DOB: {data.date_of_birth}")
-        if data.notes:
-            c.drawString(20 * mm, height - 48 * mm, f"Notes: {data.notes}")
-
-        # Images grid (2 per row)
-        y_start = height - 65 * mm
-        img_w, img_h = 80 * mm, 60 * mm
-        margin = 15 * mm
-        images_per_page = 4
-        col_gap = 10 * mm
-
-        for i, img in enumerate(images):
-            if i > 0 and i % images_per_page == 0:
-                c.showPage()
-                y_start = height - 20 * mm
-
-            pos = i % images_per_page
-            row = pos // 2
-            col = pos % 2
-
-            x = margin + col * (img_w + col_gap)
-            y = y_start - row * (img_h + 20 * mm)
-
-            # Try Redis cache first, then disk
-            b64_data = await get_cached_image(img.id)
-            if b64_data:
-                img_bytes = base64.b64decode(b64_data)
-            elif os.path.exists(img.file_path):
-                with open(img.file_path, "rb") as f:
-                    img_bytes = f.read()
-            else:
-                # Skip missing image
-                c.setFont("Helvetica", 8)
-                c.drawString(x, y, f"[Image unavailable: {img.filename}]")
-                continue
-
-            # Draw image
-            img_buffer = BIO(img_bytes)
-            try:
-                c.drawImage(
-                    img_buffer, x, y - img_h, width=img_w, height=img_h,
-                    preserveAspectRatio=True, anchor='c'
-                )
-            except Exception:
-                c.drawString(x, y, f"[Cannot render: {img.filename}]")
-
-            # Caption
-            c.setFont("Helvetica", 7)
-            c.drawString(x, y - img_h - 4 * mm, f"{img.scope.upper()} - {img.filename}")
-
-        c.save()
-        return buffer.getvalue()
-
+        from reportlab.lib.utils import ImageReader
     except ImportError:
-        # Fallback: return a simple text-based response if reportlab not installed
         raise HTTPException(
             501,
-            "PDF generation requires 'reportlab'. Install with: pip install reportlab"
+            "PDF generation requires 'reportlab'. Install with: pip install reportlab Pillow"
         )
+
+    buffer = BIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin = 15 * mm
+
+    # ─── Cover page ─────────────────────────────────────────────────────
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(margin, height - 25 * mm, "IXOPE Medical Report")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(margin, height - 35 * mm, f"Patient: {data.patient_name}")
+    c.drawString(margin, height - 41 * mm, f"ID: {data.patient_id}")
+    if data.date_of_birth:
+        c.drawString(margin, height - 47 * mm, f"Date of Birth: {data.date_of_birth}")
+
+    from datetime import datetime
+    c.drawString(margin, height - 55 * mm, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawString(margin, height - 61 * mm, f"Total images: {len(images)}")
+
+    if data.notes:
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(margin, height - 73 * mm, "Notes:")
+        c.setFont("Helvetica", 9)
+        # Simple word wrap
+        words = data.notes.split()
+        line = ""
+        y_pos = height - 80 * mm
+        for word in words:
+            if c.stringWidth(line + " " + word, "Helvetica", 9) < (width - 2 * margin):
+                line += (" " + word) if line else word
+            else:
+                c.drawString(margin, y_pos, line)
+                y_pos -= 4 * mm
+                line = word
+        if line:
+            c.drawString(margin, y_pos, line)
+
+    # ─── One image per page ──────────────────────────────────────────────
+    for i, img in enumerate(images):
+        c.showPage()
+
+        # Title bar
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(margin, height - 15 * mm, f"Image {i + 1} of {len(images)}")
+        c.setFont("Helvetica", 9)
+        c.drawString(margin, height - 21 * mm, f"{img.scope.upper()} - {img.original_filename or img.filename}")
+
+        # Draw separator line
+        c.setStrokeColorRGB(0.85, 0.85, 0.85)
+        c.line(margin, height - 24 * mm, width - margin, height - 24 * mm)
+
+        # Image area
+        img_area_top = height - 28 * mm
+        img_area_bottom = 15 * mm
+        img_area_height = img_area_top - img_area_bottom
+        img_area_width = width - 2 * margin
+
+        # Get image bytes from Redis cache or disk
+        b64_data = await get_cached_image(img.id)
+        if b64_data:
+            img_bytes = base64.b64decode(b64_data)
+        elif os.path.exists(img.file_path):
+            with open(img.file_path, "rb") as f:
+                img_bytes = f.read()
+        else:
+            c.setFont("Helvetica", 12)
+            c.drawString(margin, height / 2, f"Image file not found: {img.filename}")
+            continue
+
+        # Draw full-page image maintaining aspect ratio
+        try:
+            img_reader = ImageReader(BIO(img_bytes))
+            iw, ih = img_reader.getSize()
+            aspect = iw / ih
+
+            if aspect > img_area_width / img_area_height:
+                # Wider — fit by width
+                draw_w = img_area_width
+                draw_h = img_area_width / aspect
+            else:
+                # Taller — fit by height
+                draw_h = img_area_height
+                draw_w = img_area_height * aspect
+
+            # Center in available area
+            draw_x = margin + (img_area_width - draw_w) / 2
+            draw_y = img_area_bottom + (img_area_height - draw_h) / 2
+
+            c.drawImage(img_reader, draw_x, draw_y, width=draw_w, height=draw_h)
+        except Exception as e:
+            c.setFont("Helvetica", 10)
+            c.drawString(margin, height / 2, f"Cannot render image: {img.filename}")
+            c.drawString(margin, height / 2 - 5 * mm, f"Error: {str(e)[:80]}")
+
+    # ─── Page numbers ────────────────────────────────────────────────────
+    total_pages = c.getPageNumber()
+    # ReportLab doesn't easily support retroactive page numbers,
+    # so we skip that for simplicity
+
+    c.save()
+    return buffer.getvalue()
