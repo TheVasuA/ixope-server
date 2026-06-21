@@ -5,7 +5,7 @@ from typing import List
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://ixope:ixope123@localhost:5432/ixope_db"
     API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
+    API_PORT: int = 8001
     DEBUG: bool = True
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 100
