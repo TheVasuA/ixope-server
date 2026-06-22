@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 100
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,https://ixope-hub.com,https://www.ixope-hub.com"
+    CORS_ORIGINS: str = "*"
     SECRET_KEY: str = "dev-secret-key"
     REDIS_URL: str = "redis://localhost:6379/0"
 
