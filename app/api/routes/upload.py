@@ -35,6 +35,8 @@ async def upload_image(
     device_id: str = Query(..., alias="id", description="Device ID"),
     scope: str = Query("general", description="Scope: opth, oto, derm, micro"),
     patient_id: str = Query("", description="Patient ID (optional)"),
+    body_part: str = Query("", description="Body part/region (e.g. arm, chest, head)"),
+    notes: str = Query("", description="Additional notes"),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload an image capture."""
@@ -64,6 +66,11 @@ async def upload_image(
     except Exception:
         pass
 
+    # Build notes with body_part metadata if provided
+    image_notes = notes
+    if body_part:
+        image_notes = f"[body_part:{body_part}] {notes}".strip()
+
     image = ImageCapture(
         device_id=device_id,
         patient_id=patient_id or None,
@@ -74,6 +81,7 @@ async def upload_image(
         thumbnail_path=thumb_path,
         file_size=file_size,
         mime_type=file.content_type or "image/jpeg",
+        notes=image_notes,
     )
     db.add(image)
     await db.commit()
