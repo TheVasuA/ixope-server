@@ -40,6 +40,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://ixope:ixope123@db:5432/ixope_db
       REDIS_URL: redis://redis:6379/1
+    ports:
+      - "8001:8001"
     volumes:
       - uploads:/app/uploads
 
