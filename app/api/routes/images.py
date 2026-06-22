@@ -133,3 +133,17 @@ async def delete_image(image_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(image)
     await db.commit()
     return {"status": "success", "message": f"Image {image_id} deleted"}
+
+
+@router.patch("/{image_id}/notes")
+async def update_image_notes(image_id: int, db: AsyncSession = Depends(get_db), notes: str = Query(..., description="Clinical notes for this image")):
+    """Update notes/description for an image."""
+    result = await db.execute(select(ImageCapture).where(ImageCapture.id == image_id))
+    image = result.scalar_one_or_none()
+    if not image:
+        raise HTTPException(404, "Image not found")
+
+    image.notes = notes
+    await db.commit()
+    await db.refresh(image)
+    return {"status": "success", "message": "Notes updated", "id": image_id, "notes": image.notes}

@@ -8,6 +8,7 @@ Flow:
 import os
 import base64
 from io import BytesIO
+BIO = BytesIO
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,7 +147,7 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
         if line:
             c.drawString(margin, y_pos, line)
 
-    # ─── One image per page ──────────────────────────────────────────────
+    # ─── One image per page with notes below ────────────────────────────
     for i, img in enumerate(images):
         c.showPage()
 
@@ -160,9 +161,33 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
         c.setStrokeColorRGB(0.85, 0.85, 0.85)
         c.line(margin, height - 24 * mm, width - margin, height - 24 * mm)
 
-        # Image area
+        # Reserve space for notes at bottom (if notes exist)
+        notes_text = img.notes or ""
+        notes_height = 0
+        if notes_text:
+            # Estimate lines needed for notes (approx 80 chars per line at 9pt)
+            line_width = width - 2 * margin
+            notes_lines = []
+            for paragraph in notes_text.split("\n"):
+                words = paragraph.split()
+                line = ""
+                for word in words:
+                    test = (line + " " + word).strip()
+                    if c.stringWidth(test, "Helvetica", 9) < line_width:
+                        line = test
+                    else:
+                        if line:
+                            notes_lines.append(line)
+                        line = word
+                if line:
+                    notes_lines.append(line)
+                if not words:
+                    notes_lines.append("")
+            notes_height = (len(notes_lines) + 2) * 4 * mm  # +2 for label and spacing
+
+        # Image area (reduced if notes are present)
         img_area_top = height - 28 * mm
-        img_area_bottom = 15 * mm
+        img_area_bottom = 15 * mm + notes_height
         img_area_height = img_area_top - img_area_bottom
         img_area_width = width - 2 * margin
 
@@ -178,7 +203,7 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
             c.drawString(margin, height / 2, f"Image file not found: {img.filename}")
             continue
 
-        # Draw full-page image maintaining aspect ratio
+        # Draw image maintaining aspect ratio
         try:
             from PIL import Image as PILImage
             pil_img = PILImage.open(BIO(img_bytes))
@@ -210,6 +235,21 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
             c.setFont("Helvetica", 10)
             c.drawString(margin, height / 2, f"Cannot render image: {img.filename}")
             c.drawString(margin, height / 2 - 5 * mm, f"Error: {str(e)[:80]}")
+
+        # ─── Draw notes below the image ──────────────────────────────────
+        if notes_text and notes_lines:
+            notes_y = img_area_bottom - 4 * mm
+            c.setStrokeColorRGB(0.85, 0.85, 0.85)
+            c.line(margin, notes_y + 2 * mm, width - margin, notes_y + 2 * mm)
+
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(margin, notes_y - 2 * mm, "Notes:")
+            notes_y -= 7 * mm
+
+            c.setFont("Helvetica", 9)
+            for line in notes_lines:
+                c.drawString(margin, notes_y, line)
+                notes_y -= 4 * mm
 
     # ─── Page numbers ────────────────────────────────────────────────────
     total_pages = c.getPageNumber()
