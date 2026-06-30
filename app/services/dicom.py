@@ -5,9 +5,10 @@ Converts stored JPEG/PNG captures into clinically valid DICOM (.dcm) files
 using pydicom (https://github.com/pydicom/pydicom), the de-facto standard
 Python DICOM library.
 
-Pixel data is written uncompressed (Explicit VR Little Endian, RGB) which is
-the most widely compatible encoding and opens in any conformant DICOM viewer
-(OsiriX, Horos, RadiAnt, Weasis, 3D Slicer, dcm4che, etc.).
+Pixel data is written uncompressed (Explicit VR Little Endian, 8-bit
+MONOCHROME2 grayscale) which is the most widely compatible encoding and
+opens in any conformant DICOM viewer (OsiriX, Horos, RadiAnt, Weasis,
+3D Slicer, dcm4che, etc.).
 """
 from __future__ import annotations
 
@@ -82,11 +83,11 @@ def jpeg_to_dicom(
     Passing the same ``study_instance_uid``/``series_instance_uid`` across
     multiple calls groups the resulting instances into one study/series.
     """
-    # ── Decode the source image to RGB ───────────────────────────────────
+    # ── Decode the source image to grayscale ─────────────────────────────
     with Image.open(io.BytesIO(image_bytes)) as im:
-        im = im.convert("RGB")
+        im = im.convert("L")  # 8-bit single-channel luminance
         width, height = im.size
-        pixel_bytes = im.tobytes()  # interleaved R,G,B (PlanarConfiguration 0)
+        pixel_bytes = im.tobytes()
 
     when = captured_at or datetime.now()
     date_str = when.strftime("%Y%m%d")
@@ -146,10 +147,9 @@ def jpeg_to_dicom(
     if notes:
         ds.ImageComments = notes[:10240]
 
-    # ── Image Pixel module (uncompressed RGB) ────────────────────────────
-    ds.SamplesPerPixel = 3
-    ds.PhotometricInterpretation = "RGB"
-    ds.PlanarConfiguration = 0
+    # ── Image Pixel module (uncompressed grayscale) ─────────────────────
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
     ds.Rows = height
     ds.Columns = width
     ds.BitsAllocated = 8
