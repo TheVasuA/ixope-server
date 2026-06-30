@@ -1,10 +1,12 @@
 """
 Image retrieval routes — query images by device, patient, scope, date range.
 """
+import os
+import re
 from datetime import date, datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.core.database import get_db
@@ -93,6 +95,69 @@ async def get_image_file(image_id: int, db: AsyncSession = Depends(get_db)):
         headers={
             "Access-Control-Allow-Origin": "*",
             "Cache-Control": "public, max-age=86400",
+        },
+    )
+
+
+@router.get("/{image_id}/dicom")
+async def get_image_dicom(
+    image_id: int,
+    patient_name: str = Query("", description="Override patient name for DICOM tags"),
+    patient_id: str = Query("", description="Override patient ID for DICOM tags"),
+    date_of_birth: str = Query("", description="Patient DOB (YYYY-MM-DD)"),
+    patient_sex: str = Query("", description="Patient sex (M/F/O)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Convert a stored capture to a DICOM Secondary Capture (.dcm) file on the
+    server and stream it back. Conversion uses pydicom and produces an
+    uncompressed RGB file that opens in any standard DICOM viewer.
+    """
+    result = await db.execute(select(ImageCapture).where(ImageCapture.id == image_id))
+    image = result.scalar_one_or_none()
+    if not image:
+        raise HTTPException(404, "Image not found")
+    if not os.path.exists(image.file_path):
+        raise HTTPException(404, "File not found on disk")
+
+    # Defer import so the rest of the API works even if pydicom isn't installed.
+    try:
+        from app.services.dicom import jpeg_to_dicom
+    except ImportError:
+        raise HTTPException(
+            501, "DICOM conversion requires 'pydicom'. Install with: pip install pydicom Pillow"
+        )
+
+    with open(image.file_path, "rb") as f:
+        image_bytes = f.read()
+
+    # Notes may embed a body-part marker, e.g. "[body_part:hand] clinical text"
+    raw_notes = image.notes or ""
+    bp_match = re.search(r"\[body_part:(\w+)\]", raw_notes)
+    body_part = bp_match.group(1) if bp_match else ""
+    clean_notes = re.sub(r"\[body_part:\w+\]\s*", "", raw_notes).strip()
+
+    dcm_bytes = jpeg_to_dicom(
+        image_bytes,
+        patient_name=patient_name or (image.patient_id or "Anonymous"),
+        patient_id=patient_id or (image.patient_id or ""),
+        date_of_birth=date_of_birth,
+        patient_sex=patient_sex,
+        scope=image.scope or "",
+        body_part=body_part,
+        notes=clean_notes,
+        captured_at=image.captured_at,
+    )
+
+    base = os.path.splitext(image.original_filename or image.filename)[0]
+    download_name = f"{base or f'image_{image_id}'}.dcm"
+
+    return Response(
+        content=dcm_bytes,
+        media_type="application/dicom",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_name}"',
+            "Access-Control-Allow-Origin": "*",
         },
     )
 
