@@ -80,11 +80,40 @@ async def get_video_file(video_id: int, download: str = Query("", description="S
             headers={"Content-Disposition": f'attachment; filename="{video.original_filename or video.filename}"'},
         )
 
+    # Check if a faststart-optimized version exists (moov atom at beginning for browser playback)
+    import shutil
+    serve_path = video.file_path
+    cache_dir = os.path.join(os.path.dirname(video.file_path), ".cache")
+    cached_path = os.path.join(cache_dir, f"{video.id}_faststart.mp4")
+
+    if os.path.exists(cached_path):
+        serve_path = cached_path
+    elif shutil.which("ffmpeg"):
+        import asyncio
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-y", "-i", video.file_path,
+                "-c", "copy", "-movflags", "+faststart",
+                cached_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=30)
+            if proc.returncode == 0 and os.path.exists(cached_path):
+                serve_path = cached_path
+        except Exception:
+            pass
+
     return FileResponse(
-        video.file_path,
-        media_type=video.mime_type or "video/mp4",
+        serve_path,
+        media_type="video/mp4",
         filename=video.filename,
-        headers={"Accept-Ranges": "bytes"},
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600",
+            "Access-Control-Allow-Origin": "*",
+        },
     )
 
 
