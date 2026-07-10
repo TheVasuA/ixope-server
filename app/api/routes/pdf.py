@@ -29,9 +29,7 @@ class PrepareRequest(BaseModel):
 
 class GenerateRequest(BaseModel):
     user_id: str
-    patient_name: str
     patient_id: str
-    date_of_birth: Optional[str] = ""
     notes: Optional[str] = ""
 
 
@@ -90,10 +88,13 @@ async def generate_report(data: GenerateRequest, db: AsyncSession = Depends(get_
     # Generate PDF using ReportLab or simple approach
     pdf_bytes = await _build_pdf(images, data)
 
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=ixope_report_{data.patient_id}.pdf"},
+        headers={"Content-Disposition": f"attachment; filename=ixope_report_{timestamp}.pdf"},
     )
 
 
@@ -120,23 +121,20 @@ async def _build_pdf(images: list, data: GenerateRequest) -> bytes:
     c.drawString(margin, height - 25 * mm, "IXOPE Medical Report")
 
     c.setFont("Helvetica", 10)
-    c.drawString(margin, height - 35 * mm, f"Patient: {data.patient_name}")
-    c.drawString(margin, height - 41 * mm, f"ID: {data.patient_id}")
-    if data.date_of_birth:
-        c.drawString(margin, height - 47 * mm, f"Date of Birth: {data.date_of_birth}")
+    c.drawString(margin, height - 35 * mm, f"ID: {data.patient_id}")
 
     from datetime import datetime
-    c.drawString(margin, height - 55 * mm, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    c.drawString(margin, height - 61 * mm, f"Total images: {len(images)}")
+    c.drawString(margin, height - 41 * mm, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawString(margin, height - 47 * mm, f"Total images: {len(images)}")
 
     if data.notes:
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(margin, height - 73 * mm, "Notes:")
+        c.drawString(margin, height - 57 * mm, "Notes:")
         c.setFont("Helvetica", 9)
         # Simple word wrap
         words = data.notes.split()
         line = ""
-        y_pos = height - 80 * mm
+        y_pos = height - 64 * mm
         for word in words:
             if c.stringWidth(line + " " + word, "Helvetica", 9) < (width - 2 * margin):
                 line += (" " + word) if line else word
