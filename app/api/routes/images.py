@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.auth import optional_device_id
 from app.models.capture import ImageCapture
 from app.schemas.capture import ImageResponse
 
@@ -27,9 +28,18 @@ async def list_images(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    token_device_id: Optional[str] = Depends(optional_device_id),
 ):
-    """List images with flexible filtering."""
+    """List images with flexible filtering.
+
+    If the request carries a device token, results are forced to that device's
+    own captures regardless of the device_id query param.
+    """
     conditions = []
+
+    # A logged-in device is locked to its own captures.
+    if token_device_id:
+        device_id = token_device_id
 
     if device_id:
         conditions.append(ImageCapture.device_id == device_id)
@@ -191,9 +201,8 @@ async def delete_image(image_id: int, db: AsyncSession = Depends(get_db)):
     if not image:
         raise HTTPException(404, "Image not found")
 
-    import os
-    if os.path.exists(image.file_path):
-        os.remove(image.file_path)
+    from app.services.cleanup import remove_capture_files
+    remove_capture_files(image.file_path, image.thumbnail_path, image.id)
 
     await db.delete(image)
     await db.commit()

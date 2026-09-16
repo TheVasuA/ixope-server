@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.core.database import get_db
+from app.core.auth import optional_device_id
 from app.models.capture import VideoCapture
 from app.schemas.capture import VideoResponse
 
@@ -24,9 +25,17 @@ async def list_videos(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    token_device_id: Optional[str] = Depends(optional_device_id),
 ):
-    """List videos with flexible filtering."""
+    """List videos with flexible filtering.
+
+    If the request carries a device token, results are forced to that device's
+    own captures.
+    """
     conditions = []
+
+    if token_device_id:
+        device_id = token_device_id
 
     if device_id:
         conditions.append(VideoCapture.device_id == device_id)
@@ -176,9 +185,8 @@ async def delete_video(video_id: int, db: AsyncSession = Depends(get_db)):
     if not video:
         raise HTTPException(404, "Video not found")
 
-    import os
-    if os.path.exists(video.file_path):
-        os.remove(video.file_path)
+    from app.services.cleanup import remove_capture_files
+    remove_capture_files(video.file_path, video.thumbnail_path, video.id)
 
     await db.delete(video)
     await db.commit()
