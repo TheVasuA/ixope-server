@@ -95,8 +95,9 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(403, "Account is disabled")
 
-    # Create JWT token
-    token = create_access_token(data={"sub": user.id, "role": user.role})
+    # Create JWT token. NOTE: JWT 'sub' must be a string — python-jose rejects
+    # a non-string subject on decode ("Subject must be a string").
+    token = create_access_token(data={"sub": str(user.id), "role": user.role})
 
     return TokenResponse(
         access_token=token,
