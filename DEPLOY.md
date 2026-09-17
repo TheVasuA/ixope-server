@@ -41,8 +41,8 @@ apt install git -y
 # Create project directory
 mkdir -p /opt/ixope && cd /opt/ixope
 
-# Clone the server repo
-git clone https://github.com/infiniti-ixope/ixope-server.git .
+# Clone the server repo (default branch is master)
+git clone https://github.com/TheVasuA/ixope-server.git .
 ```
 
 Or copy files manually via SCP from your local machine:
@@ -120,6 +120,26 @@ curl https://api.ixope-hub.com/health
 
 ---
 
+## Step 7b: Seed the initial admin & doctor accounts (first deploy only)
+
+The admin console and per-device management require an admin account. On a
+fresh database, create the initial accounts once:
+
+```bash
+curl -X POST https://api.ixope-hub.com/auth/seed
+# Creates: admin / ixope@321 (role admin) and ixope / ixope@123 (role doctor)
+```
+
+> ⚠️ These are known default passwords. Log into the admin console and change
+> them immediately (or create a new admin via the console, then delete the
+> seeded one). Do NOT leave the defaults in production.
+
+Log into the admin console at `https://ixope-hub.com/admin/login` using
+`admin` / `ixope@321`. From there you can register devices (each gets its own
+auto-generated username/password) and manage users.
+
+---
+
 ## Step 8: Install ffmpeg (for video thumbnails)
 
 ```bash
@@ -193,10 +213,21 @@ docker exec ixope_db pg_dump -U ixope ixope_db > backup_$(date +%Y%m%d).sql
 
 ```bash
 cd /opt/ixope
-git pull origin main
+git pull origin master
 docker compose build api
 docker compose up -d api
 ```
+
+> **Schema updates:** On startup the API runs lightweight, idempotent column
+> additions (e.g. the per-device credential columns `username`,
+> `hashed_password`, `is_active` on the `devices` table) via
+> `ADD COLUMN IF NOT EXISTS`. Existing data is preserved — no manual migration
+> or DB reset is needed. This only runs when the *new* code is deployed, so
+> always `git pull` + `docker compose build api` before `up -d`.
+>
+> **SECRET_KEY:** JWTs are signed with `SECRET_KEY` from `.env`. Use a strong
+> value (`openssl rand -hex 32`). Changing it later invalidates all existing
+> admin/device sessions — everyone must log in again.
 
 ---
 
